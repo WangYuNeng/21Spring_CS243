@@ -17,9 +17,19 @@ class TestFaintness {
      * Run the test from root dir using
      * ./run.sh flow.Flow submit.MySolver submit.Faintness submit.TestFaintness
      */
-    /*
-      void test2() {
-      }
-      ...
-    */
+    int foobar (){
+      return 5;
+    }
+    void foo1 (int x) {
+
+    }
+    void foo2 (int x) {
+
+    }
+    void test2() {
+      int x = 1;
+      foo1(x);
+      x = foobar();
+      foo2(x);
+    }
 }

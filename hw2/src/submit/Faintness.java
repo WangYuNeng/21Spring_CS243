@@ -1,8 +1,11 @@
 package submit;
 
 // some useful things to import. add any additional imports you need.
+import java.util.*;
 import joeq.Compiler.Quad.*;
+import joeq.Compiler.Quad.Operand.RegisterOperand;
 import flow.Flow;
+import joeq.Main.Helper;
 
 /**
  * Skeleton class for implementing a faint variable analysis
@@ -14,16 +17,40 @@ public class Faintness implements Flow.Analysis {
      * Class for the dataflow objects in the Faintness analysis.
      * You are free to change this class or move it to another file.
      */
-    public class MyDataflowObject implements Flow.DataflowObject {
+    public static class VarSet implements Flow.DataflowObject {
+        private Set<String> set;
+        public static Set<String> universalSet;
+        public VarSet() { set = new TreeSet<String>(universalSet); }
         /**
          * Methods from the Flow.DataflowObject interface.
          * See Flow.java for the meaning of these methods.
          * These need to be filled in.
          */
-        public void setToTop() {}
-        public void setToBottom() {}
-        public void meetWith (Flow.DataflowObject o) {}
-        public void copy (Flow.DataflowObject o) {}
+        public void setToTop() { set = new TreeSet<String>(universalSet); }
+        public void setToBottom() { set = new TreeSet<String>(); }
+
+        public void meetWith(Flow.DataflowObject o) 
+        {
+            VarSet a = (VarSet)o;
+            set.retainAll(a.set);
+        }
+
+        public void copy(Flow.DataflowObject o) 
+        {
+            VarSet a = (VarSet) o;
+            set = new TreeSet<String>(a.set);
+        }
+
+        @Override
+        public boolean equals(Object o) 
+        {
+            if (o instanceof VarSet) 
+            {
+                VarSet a = (VarSet) o;
+                return set.equals(a.set);
+            }
+            return false;
+        }
 
         /**
          * toString() method for the dataflow objects which is used
@@ -35,7 +62,18 @@ public class Faintness implements Flow.Analysis {
          * match this exactly.
          */
         @Override
-        public String toString() { return ""; }
+        public int hashCode() {
+            return set.hashCode();
+        }
+        @Override
+        public String toString() 
+        {
+            return set.toString();
+        }
+
+        public void genVar(String v) {set.add(v);}
+        public void killVar(String v) {set.remove(v);}
+        public boolean hasVar(String v) {return set.contains(v);}
     }
 
     /**
@@ -46,8 +84,8 @@ public class Faintness implements Flow.Analysis {
      * You are free to modify these fields, just make sure to
      * preserve the data printed by postprocess(), which relies on these.
      */
-    private MyDataflowObject[] in, out;
-    private MyDataflowObject entry, exit;
+    private VarSet[] in, out;
+    private VarSet entry, exit;
 
     /**
      * This method initializes the datflow framework.
@@ -63,26 +101,43 @@ public class Faintness implements Flow.Analysis {
         int max = 0;
         while (qit.hasNext()) {
             int id = qit.next().getID();
-            if (id > max) 
-                max = id;
+            if (id > max) max = id;
         }
         max += 1;
 
         // allocate the in and out arrays.
-        in = new MyDataflowObject[max];
-        out = new MyDataflowObject[max];
+        in = new VarSet[max];
+        out = new VarSet[max];
 
         // initialize the contents of in and out.
         qit = new QuadIterator(cfg);
+
+        Set<String> s = new TreeSet<String>();
+        VarSet.universalSet = s;
+
+        /* Arguments are always there. */
+        int numargs = cfg.getMethod().getParamTypes().length;
+        for (int i = 0; i < numargs; i++) {
+            s.add("R"+i);
+        }
+
         while (qit.hasNext()) {
-            int id = qit.next().getID();
-            in[id] = new MyDataflowObject();
-            out[id] = new MyDataflowObject();
+            Quad q = qit.next();
+            int id = q.getID();
+            in[id] = new VarSet();
+            out[id] = new VarSet();
+            for (RegisterOperand def : q.getDefinedRegisters()) {
+                s.add(def.getRegister().toString());
+            }
+            for (RegisterOperand use : q.getUsedRegisters()) {
+                s.add(use.getRegister().toString());
+            }
         }
 
         // initialize the entry and exit points.
-        entry = new MyDataflowObject();
-        exit = new MyDataflowObject();
+        transferfn.val = new VarSet();
+        entry = new VarSet();
+        exit = new VarSet();
 
         /************************************************
          * Your remaining initialization code goes here *
@@ -114,15 +169,364 @@ public class Faintness implements Flow.Analysis {
      * See Flow.java for the meaning of these methods.
      * These need to be filled in.
      */
-    public boolean isForward () { return false; }
-    public Flow.DataflowObject getEntry() { return null; }
-    public Flow.DataflowObject getExit() { return null; }
-    public void setEntry(Flow.DataflowObject value) {}
-    public void setExit(Flow.DataflowObject value) {}
-    public Flow.DataflowObject getIn(Quad q) { return null; }
-    public Flow.DataflowObject getOut(Quad q) { return null; }
-    public void setIn(Quad q, Flow.DataflowObject value) {}
-    public void setOut(Quad q, Flow.DataflowObject value) {}
-    public Flow.DataflowObject newTempVar() { return null; }
-    public void processQuad(Quad q) {}
+    public boolean isForward() { return false; }
+
+    /* Routines for interacting with dataflow values. */
+
+    public Flow.DataflowObject getEntry() 
+    { 
+        Flow.DataflowObject result = newTempVar();
+        result.copy(entry); 
+        return result;
+    }
+    public Flow.DataflowObject getExit() 
+    { 
+        Flow.DataflowObject result = newTempVar();
+        result.copy(exit); 
+        return result;
+    }
+    public Flow.DataflowObject getIn(Quad q) 
+    {
+        Flow.DataflowObject result = newTempVar();
+        result.copy(in[q.getID()]); 
+        return result;
+    }
+    public Flow.DataflowObject getOut(Quad q) 
+    {
+        Flow.DataflowObject result = newTempVar();
+        result.copy(out[q.getID()]); 
+        return result;
+    }
+    public void setIn(Quad q, Flow.DataflowObject value) 
+    { 
+        in[q.getID()].copy(value); 
+    }
+    public void setOut(Quad q, Flow.DataflowObject value) 
+    { 
+        out[q.getID()].copy(value); 
+    }
+    public void setEntry(Flow.DataflowObject value) 
+    { 
+        entry.copy(value); 
+    }
+    public void setExit(Flow.DataflowObject value) 
+    { 
+        exit.copy(value); 
+    }
+
+    public Flow.DataflowObject newTempVar() { return new VarSet(); }
+
+    /* Actually perform the transfer operation on the relevant
+     * quad. */
+
+    private TransferFunction transferfn = new TransferFunction ();
+    public void processQuad(Quad q) {
+        // system.out.println("Process Quad "+q.getID());
+        transferfn.val.copy(out[q.getID()]);
+        Helper.runPass(q, transferfn);
+        in[q.getID()].copy(transferfn.val);
+    }
+
+    /* The QuadVisitor that actually does the computation */
+    public static class TransferFunction extends QuadVisitor.EmptyVisitor {
+        VarSet val;
+
+        @Override
+        public void visitMove (Quad q) {
+            // system.out.println("\tvisitMove");
+            String dest = ((RegisterOperand)Operator.Move.getDest(q)).getRegister().toString();
+
+            if (val.hasVar(dest)) {
+                for (RegisterOperand use : q.getUsedRegisters()) {
+                    val.genVar(use.getRegister().toString());
+                }
+            }
+            for (RegisterOperand def : q.getDefinedRegisters()) {
+                val.genVar(def.getRegister().toString());
+            }
+
+        }
+        @Override
+        public void visitBinary (Quad q) {
+            // system.out.println("\tvisitBinary");
+            String dest =   Operator.Binary.getDest(q).getRegister().toString();
+
+            if (val.hasVar(dest)) {
+                for (RegisterOperand use : q.getUsedRegisters()) {
+                    val.genVar(use.getRegister().toString());
+                }
+            }
+            for (RegisterOperand def : q.getDefinedRegisters()) {
+                val.genVar(def.getRegister().toString());
+            }
+
+        }
+
+        @Override
+        public void visitALength(Quad q) {
+            // system.out.println("\tvisitALength");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitAllocation(Quad q) {
+            // system.out.println("\tvisitAllocation");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitALoad(Quad q) {
+            // system.out.println("\tvisitALoad");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitArray(Quad q) {
+            // system.out.println("\tvisitArray");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitAStore(Quad q) {
+            // system.out.println("\tvisitAStore");
+            visitDefault(q);
+        }
+
+        // @Override
+        // public void visitBinary(Quad q) {
+        //     // system.out.println("\tvisitBinary");
+        //     visitDefault(q);
+        // }
+
+        @Override
+        public void visitBoundsCheck(Quad q) {
+            // system.out.println("\tvisitBoundsCheck");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitBranch(Quad q) {
+            // system.out.println("\tvisitBranch");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitCheck(Quad q) {
+            // system.out.println("\tvisitCheck");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitCheckCast(Quad q) {
+            // system.out.println("\tvisitCheckCast");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitCondBranch(Quad q) {
+            // system.out.println("\tvisitCondBranch");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitExceptionThrower(Quad q) {
+            // system.out.println("\tvisitExceptionThrower");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitGetfield(Quad q) {
+            // system.out.println("\tvisitGetfield");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitGetstatic(Quad q) {
+            // system.out.println("\tvisitGetstatic");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitGoto(Quad q) {
+            // system.out.println("\tvisitGoto");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitInstanceField(Quad q) {
+            // system.out.println("\tvisitInstanceField");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitInstanceOf(Quad q) {
+            // system.out.println("\tvisitInstanceOf");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitIntIfCmp(Quad q) {
+            // system.out.println("\tvisitIntIfCmp");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitInvoke(Quad q) {
+            // system.out.println("\tvisitInvoke");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitJsr(Quad q) {
+            // system.out.println("\tvisitJsr");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitLoad(Quad q) {
+            // system.out.println("\tvisitLoad");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitLookupSwitch(Quad q) {
+            // system.out.println("\tvisitLookupSwitch");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitMemLoad(Quad q) {
+            // system.out.println("\tvisitMemLoad");
+            visitDefault(q);
+        }
+        
+        @Override
+        public void visitMemStore(Quad q) {
+            // system.out.println("\tvisitMemStore");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitMonitor(Quad q) {
+            // system.out.println("\tvisitMonitor");
+            visitDefault(q);
+        }
+
+        // @Override
+        // public void visitMove(Quad q) {
+        //     // system.out.println("\tvisitMove");
+        //     visitDefault(q);
+        // }
+
+        @Override
+        public void visitNew(Quad q) {
+            // system.out.println("\tvisitNew");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitNewArray(Quad q) {
+            // system.out.println("\tvisitNewArray");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitNullCheck(Quad q) {
+            // system.out.println("\tvisitNullCheck");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitPhi(Quad q) {
+            // system.out.println("\tvisitPhi");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitPutfield(Quad q) {
+            // system.out.println("\tvisitPutfield");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitPutstatic(Quad q) {
+            // system.out.println("\tvisitPutstatic");
+            visitDefault(q);
+        }
+
+        // @Override
+        // public void visitQuad(Quad q) {
+        //     // system.out.println("\tvisitQuad");
+        //     visitDefault(q);
+        // }
+
+        @Override
+        public void visitRet(Quad q) {
+            // system.out.println("\tvisitRet");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitReturn(Quad q) {
+            // system.out.println("\tvisitReturn");
+            visitDefault(q);
+        }
+        
+        @Override
+        public void visitSpecial(Quad q) {
+            // system.out.println("\tvisitSpecial");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitStaticField(Quad q) {
+            // system.out.println("\tvisitStaticField");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitStore(Quad q) {
+            // system.out.println("\tvisitStore");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitStoreCheck(Quad q) {
+            // system.out.println("\tvisitStoreCheck");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitTableSwitch(Quad q) {
+            // system.out.println("\tvisitTableSwitch");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitTypeCheck(Quad q) {
+            // system.out.println("\tvisitTypeCheck");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitUnary(Quad q) {
+            // system.out.println("\tvisitUnary");
+            visitDefault(q);
+        }
+
+        @Override
+        public void visitZeroCheck(Quad q) {
+            // system.out.println("\tvisitZeroCheck");
+            visitDefault(q);
+        }
+
+        private void visitDefault(Quad q) {
+            for (RegisterOperand use : q.getUsedRegisters()) {
+                val.killVar(use.getRegister().toString());
+            }
+            for (RegisterOperand def : q.getDefinedRegisters()) {
+                val.genVar(def.getRegister().toString());
+            }
+        }
+    }
 }
