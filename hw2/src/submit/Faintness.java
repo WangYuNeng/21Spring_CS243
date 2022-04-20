@@ -236,9 +236,9 @@ public class Faintness implements Flow.Analysis {
             // system.out.println("\tvisitMove");
             String dest = ((RegisterOperand)Operator.Move.getDest(q)).getRegister().toString();
 
-            if (val.hasVar(dest)) {
+            if (!val.hasVar(dest)) {
                 for (RegisterOperand use : q.getUsedRegisters()) {
-                    val.genVar(use.getRegister().toString());
+                    val.killVar(use.getRegister().toString());
                 }
             }
             for (RegisterOperand def : q.getDefinedRegisters()) {
@@ -251,9 +251,9 @@ public class Faintness implements Flow.Analysis {
             // system.out.println("\tvisitBinary");
             String dest =   Operator.Binary.getDest(q).getRegister().toString();
 
-            if (val.hasVar(dest)) {
+            if (!val.hasVar(dest)) {
                 for (RegisterOperand use : q.getUsedRegisters()) {
-                    val.genVar(use.getRegister().toString());
+                    val.killVar(use.getRegister().toString());
                 }
             }
             for (RegisterOperand def : q.getDefinedRegisters()) {
@@ -521,11 +521,11 @@ public class Faintness implements Flow.Analysis {
         }
 
         private void visitDefault(Quad q) {
-            for (RegisterOperand use : q.getUsedRegisters()) {
-                val.killVar(use.getRegister().toString());
-            }
             for (RegisterOperand def : q.getDefinedRegisters()) {
                 val.genVar(def.getRegister().toString());
+            }
+            for (RegisterOperand use : q.getUsedRegisters()) {
+                val.killVar(use.getRegister().toString());
             }
         }
     }

@@ -32,4 +32,10 @@ class TestFaintness {
       x = foobar();
       foo2(x);
     }
+
+    int test4() {
+      int x = 0;
+      x = x + 1;
+      return x;
+    }
 }
