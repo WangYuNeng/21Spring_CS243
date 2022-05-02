@@ -166,6 +166,7 @@ public class NullChecked implements Flow.Analysis {
                     String usedReg = use.getRegister().toString();
                     if (in[id].hasVar(usedReg)) {
                         redundantIdSet.add(id);
+                        qit.remove();
                     }
                 }
             }
