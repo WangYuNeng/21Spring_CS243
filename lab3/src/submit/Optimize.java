@@ -15,7 +15,7 @@ public class Optimize {
         MySolver solver = new MySolver();
 
         // get an instance of the analysis class.
-        NullChecked analysis = new NullChecked();
+        RemoveRedundantNullChecks analysis = new RemoveRedundantNullChecks();
         solver.registerAnalysis(analysis);
 
         for (int i = 0; i < optimizeFiles.size(); i++) {

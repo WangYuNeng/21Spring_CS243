@@ -11,7 +11,7 @@ import joeq.Main.Helper;
  * Skeleton class for implementing a faint variable analysis
  * using the Flow.Analysis interface.
  */
-public class NullChecked implements Flow.Analysis {
+public class RemoveRedundantNullChecks implements Flow.Analysis {
 
     /**
      * Class for the dataflow objects in the Faintness analysis.
@@ -166,6 +166,7 @@ public class NullChecked implements Flow.Analysis {
                     String usedReg = use.getRegister().toString();
                     if (in[id].hasVar(usedReg)) {
                         redundantIdSet.add(id);
+                        qit.remove();
                     }
                 }
             }
@@ -178,7 +179,6 @@ public class NullChecked implements Flow.Analysis {
             Integer val = (Integer)valueIt.next();
             redundantIdString += " " + val.toString();
         }
-        System.out.println(cfg.getMethod().getName().toString() + redundantIdString);
 
         // System.out.println("entry: " + entry.toString());
         // for (int i=1; i<in.length; i++) {

@@ -1,3 +1,5 @@
 Describe your design for extra credit in this file.
 
 Give a high level description on each of your optimization techniques. We don't expect too much details. Usually less than 5 sentences should be enough to describe each optimization. But make sure we understand what you are doing.
+
+I run Liveness analysis and remove dead code. Before consider quads that have side effect, the code size shinks. However, the quads that can be moved by the analysis all have side effect :(

@@ -11,7 +11,7 @@ import joeq.Main.Helper;
  * Skeleton class for implementing a faint variable analysis
  * using the Flow.Analysis interface.
  */
-public class NullChecked implements Flow.Analysis {
+public class Faintness implements Flow.Analysis {
 
     /**
      * Class for the dataflow objects in the Faintness analysis.
@@ -137,7 +137,6 @@ public class NullChecked implements Flow.Analysis {
         // initialize the entry and exit points.
         transferfn.val = new VarSet();
         entry = new VarSet();
-        entry.setToBottom();
         exit = new VarSet();
 
         /************************************************
@@ -161,25 +160,20 @@ public class NullChecked implements Flow.Analysis {
             Quad q = qit.next();
             int id = q.getID();
 
-            if (q.getOperator() instanceof Operator.NullCheck) {
-                for (RegisterOperand use : q.getUsedRegisters()) {
-                    String usedReg = use.getRegister().toString();
-                    if (in[id].hasVar(usedReg)) {
-                        redundantIdSet.add(id);
+            if ((q.getOperator() instanceof Operator.Move || q.getOperator() instanceof Operator.Binary || q.getOperator() instanceof Operator.Unary) && !q.getOperator().hasSideEffects()) {
+                boolean isFaint = true;
+                for (RegisterOperand def : q.getDefinedRegisters()) {
+                    String defReg = def.getRegister().toString();
+                    if (!out[id].hasVar(defReg)) {
+                        System.out.println(q.toString());
+                        isFaint = false;
+                        break;
                     }
                 }
+                if (isFaint) 
+                    qit.remove();
             }
         }
-
-        String redundantIdString = new String("");
-        Iterator valueIt = redundantIdSet.iterator();
-  
-        while (valueIt.hasNext()) {
-            Integer val = (Integer)valueIt.next();
-            redundantIdString += " " + val.toString();
-        }
-        System.out.println(cfg.getMethod().getName().toString() + redundantIdString);
-
         // System.out.println("entry: " + entry.toString());
         // for (int i=1; i<in.length; i++) {
         //     if (in[i] != null) {
@@ -195,7 +189,7 @@ public class NullChecked implements Flow.Analysis {
      * See Flow.java for the meaning of these methods.
      * These need to be filled in.
      */
-    public boolean isForward() { return true; }
+    public boolean isForward() { return false; }
 
     /* Routines for interacting with dataflow values. */
 
@@ -248,9 +242,9 @@ public class NullChecked implements Flow.Analysis {
     private TransferFunction transferfn = new TransferFunction ();
     public void processQuad(Quad q) {
         // system.out.println("Process Quad "+q.getID());
-        transferfn.val.copy(in[q.getID()]);
+        transferfn.val.copy(out[q.getID()]);
         transferfn.visitQuad(q);
-        out[q.getID()].copy(transferfn.val);
+        in[q.getID()].copy(transferfn.val);
     }
 
     /* The QuadVisitor that actually does the computation */
@@ -259,15 +253,33 @@ public class NullChecked implements Flow.Analysis {
 
         @Override
         public void visitQuad (Quad q) {
-            for (RegisterOperand def : q.getDefinedRegisters()) {
-                val.killVar(def.getRegister().toString());
-            }
-            if (q.getOperator() instanceof Operator.NullCheck) {
+
+            if (q.getOperator() instanceof Operator.Move || q.getOperator() instanceof Operator.Binary || q.getOperator() instanceof Operator.Unary) {
+                String dest;
+                if (q.getOperator() instanceof Operator.Move) {
+                    dest = Operator.Move.getDest(q).getRegister().toString();
+                } else if (q.getOperator() instanceof Operator.Binary) {
+                    dest = Operator.Binary.getDest(q).getRegister().toString();
+                } else {
+                    dest = Operator.Unary.getDest(q).getRegister().toString();
+                }
+
+                if (!val.hasVar(dest)) {
+                    for (RegisterOperand use : q.getUsedRegisters()) {
+                        val.killVar(use.getRegister().toString());
+                    }
+                }
+                for (RegisterOperand def : q.getDefinedRegisters()) {
+                    val.genVar(def.getRegister().toString());
+                }
+            } else {
+                // for (RegisterOperand def : q.getDefinedRegisters()) {
+                //     val.genVar(def.getRegister().toString());
+                // }
                 for (RegisterOperand use : q.getUsedRegisters()) {
-                    val.genVar(use.getRegister().toString());
+                    val.killVar(use.getRegister().toString());
                 }
             }
-
         }
     }
 }
