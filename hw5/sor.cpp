@@ -235,6 +235,53 @@ void parallel_sor(Matrix<float>& m, float c)
 // BEGIN YOUR CODE HERE
 
 // Write the parallel implementation of SOR here
+    SyncVariable* syncVars = new SyncVariable[m.rows()];
+
+    // Lecture slide implementation
+    #pragma omp parallel for schedule(static,1)
+    for (size_t i = 1; i < m.rows(); i++) {
+        for (size_t j = 1; j < m.cols(); j++) {
+            if (i == 1) {
+                m.at(i, j) = c * (m.at(i-1, j) + m.at(i, j-1));
+            } else{
+                syncVars[i - 1].wait_until(j);
+                m.at(i, j) = c * (m.at(i-1, j) + m.at(i, j-1));
+            }
+
+            syncVars[i].increment();
+        }
+    }
+
+
+    // Try reducing synchronization overhead by fixing i to thread
+    // constexpr size_t n_thread = 8;
+    // #pragma omp parallel for schedule(static,1)
+    // for (size_t ii = 1; ii < n_thread; ii++) {
+    //     for (size_t i = ii; i < m.rows(); i += n_thread) {
+    //         if (i == 1) {
+    //             for (size_t j = 1; j < m.cols(); j += 1) {
+    //                 m.at(i, j) = c * (m.at(i-1, j) + m.at(i, j-1));
+    //                 syncVars[i].increment();
+    //             }
+    //         } else {
+    //             for (size_t j = 1; j < m.cols(); j += 1) {
+    //                 syncVars[i - 1].wait_until(j);
+    //                 m.at(i, j) = c * (m.at(i-1, j) + m.at(i, j-1));
+    //                 syncVars[i].increment();
+    //             }
+    //         }
+    //     }
+    // } 
+
+    // Direct implementation of the wavefront
+    // for (size_t sum = 2; sum < m.rows() + m.cols(); sum++) {
+    //     #pragma omp parallel for
+    //     for (size_t i = 1; i < std::min(m.rows(), sum); i += 1) {
+    //         size_t j = sum - i;
+    //         m.at(i, j) = c * (m.at(i-1, j) + m.at(i, j-1));
+    //     }
+    // } 
+
 
 // END YOUR CODE HERE
 }
@@ -263,8 +310,8 @@ int main(int argc, const char** argv)
 
         Timer tm(CLOCK_MONOTONIC);
 
-        serial_sor(m, c);
-        //parallel_sor(m, c);
+        // serial_sor(m, c);
+        parallel_sor(m, c);
 
         uint64_t time = tm.read();
         if (i < 5)

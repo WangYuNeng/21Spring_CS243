@@ -233,13 +233,83 @@ public:
 // (optional) BEGIN YOUR CODE HERE
 
 // Add any constant, define, class or struct type that you find useful
+static Matrix<float>
+matmul_add(const MatrixView<float>& m1, const MatrixView<float>& m2, Matrix<float>& m3)
+{
+    static const int BLOCK_SIZE = 128;
+
+    assert(m1.cols() == m2.rows());
+
+#pragma omp parallel for collapse(2)
+    for (size_t i = 0; i < m1.rows(); i += BLOCK_SIZE) {
+        for (size_t j = 0; j < m2.cols(); j += BLOCK_SIZE) {
+            for (size_t k = 0; k < m2.rows(); k ++) {
+                for (size_t ii = i; ii < std::min(m1.rows(), i+BLOCK_SIZE); ii++) {
+                    for (size_t jj = j; jj < std::min(m2.cols(), j+BLOCK_SIZE); jj++) {
+                        m3.at(ii, jj) += m1.at(ii, k) * m2.at(k, jj);
+                    }
+                }
+            }
+        }
+    }
+
+    return m3;
+}
+
+static Matrix<float>
+matmul_add_serial(const MatrixView<float>& m1, const MatrixView<float>& m2, Matrix<float>& m3)
+{
+
+    assert(m1.cols() == m2.rows());
+    static const int BLOCK_SIZE = 128;
+
+    for (size_t i = 0; i < m1.rows(); i += BLOCK_SIZE) {
+        for (size_t j = 0; j < m2.cols(); j += BLOCK_SIZE) {
+            for (size_t k = 0; k < m2.rows(); k ++) {
+                for (size_t ii = i; ii < std::min(m1.rows(), i+BLOCK_SIZE); ii++) {
+                    for (size_t jj = j; jj < std::min(m2.cols(), j+BLOCK_SIZE); jj++) {
+                        m3.at(ii, jj) += m1.at(ii, k) * m2.at(k, jj);
+                    }
+                }
+            }
+        }
+    }
+
+    return m3;
+}
+
+// (optional) END YOUR CODE HERE
+
+static Matrix<float>
+matmul_serial(const MatrixView<float>& m1, const MatrixView<float>& m2)
+{
+    static const int BLOCK_SIZE = 128;
+
+    assert(m1.cols() == m2.rows());
+    Matrix<float> m3(m1.rows(), m2.cols());
+    m3.set_zero();
+
+    for (size_t i = 0; i < m1.rows(); i += BLOCK_SIZE) {
+        for (size_t j = 0; j < m2.cols(); j += BLOCK_SIZE) {
+            for (size_t k = 0; k < m2.rows(); k ++) {
+                for (size_t ii = i; ii < std::min(m1.rows(), i+BLOCK_SIZE); ii++) {
+                    for (size_t jj = j; jj < std::min(m2.cols(), j+BLOCK_SIZE); jj++) {
+                        m3.at(ii, jj) += m1.at(ii, k) * m2.at(k, jj);
+                    }
+                }
+            }
+        }
+    }
+
+    return m3;
+}
 
 // (optional) END YOUR CODE HERE
 
 static Matrix<float>
 matmul(const MatrixView<float>& m1, const MatrixView<float>& m2)
 {
-    static const int BLOCK_SIZE = 16;
+    static const int BLOCK_SIZE = 128;
 
     assert(m1.cols() == m2.rows());
     Matrix<float> m3(m1.rows(), m2.cols());
@@ -353,6 +423,7 @@ void kernel_lstm(const Matrix<float>& weights, const std::vector<float>& biases,
     auto o = cwise_unary_op(broadcast_add_second(cwise_add(matmul(h, Wo), matmul(x, Uo)), bo), sigmoid);
 
     auto tmp = cwise_unary_op(broadcast_add_second(cwise_add(matmul(h, Wc), matmul(x, Uc)), bc), std::tanh);
+
     cprime = cwise_add(cwise_mul(f, c), cwise_mul(i, tmp));
     hprime = cwise_mul(o, cwise_unary_op(cprime, std::tanh));
 }
@@ -365,7 +436,56 @@ void serial_lstm(const Matrix<float>& weights, const std::vector<float>& biases,
 // BEGIN YOUR CODE HERE
 
 // Write the serial implementation of LSTM here
+    size_t bsize = h.rows();
+    size_t hsize = h.cols();
+    size_t xsize = x.cols();
+    const MatrixView<float> Wf(weights, 0, 0, hsize, hsize);
+    const MatrixView<float> Wi(weights, 0, hsize, hsize, hsize);
+    const MatrixView<float> Wo(weights, 0, 2*hsize, hsize, hsize);
+    const MatrixView<float> Wc(weights, 0, 3*hsize, hsize, hsize);
+    const MatrixView<float> Uf(weights, hsize, 0, xsize, hsize);
+    const MatrixView<float> Ui(weights, hsize, hsize, xsize, hsize);
+    const MatrixView<float> Uo(weights, hsize, 2*hsize, xsize, hsize);
+    const MatrixView<float> Uc(weights, hsize, 3*hsize, xsize, hsize);
+    const VectorView<float> bf(biases, 0, hsize);
+    const VectorView<float> bi(biases, hsize, hsize);
+    const VectorView<float> bo(biases, 2*hsize, hsize);
+    const VectorView<float> bc(biases, 3*hsize, hsize);
 
+    Matrix<float> fm(bsize, hsize), im(bsize, hsize), om(bsize, hsize), jm(bsize, hsize);
+
+    
+    fm = matmul_serial(h, Wf);
+    fm = matmul_add_serial(x, Uf, fm);
+
+    om = matmul_serial(h, Wo);
+    om = matmul_add_serial(x, Uo, om);
+
+    im = matmul_serial(h, Wi);
+    im = matmul_add_serial(x, Ui, im);
+
+    jm = matmul_serial(h, Wc);
+    jm = matmul_add_serial(x, Uc, jm);
+    
+    for (size_t i = 0; i < bsize; i += 1) {
+        for (size_t j = 0; j < xsize; j += 1) {
+            fm.at(i, j) += bf.at(j);
+            fm.at(i, j) = sigmoid(fm.at(i, j));
+
+            cprime.at(i, j) = fm.at(i, j) * c.at(i, j);
+
+            im.at(i, j) += bi.at(j);
+            im.at(i, j) = sigmoid(im.at(i, j));
+            jm.at(i, j) += bc.at(j);
+            jm.at(i, j) = std::tanh(jm.at(i, j));
+
+            cprime.at(i, j) += im.at(i, j) * jm.at(i, j);
+
+            om.at(i, j) += bo.at(j);
+            om.at(i, j) = sigmoid(om.at(i, j));
+            hprime.at(i, j) = om.at(i, j) * std::tanh(cprime.at(i, j));
+        }
+    }
 // END YOUR CODE HERE
 }
 
@@ -377,6 +497,60 @@ void parallel_lstm(const Matrix<float>& weights, const std::vector<float>& biase
 // BEGIN YOUR CODE HERE
 
 // Write the parallel implementation of LSTM here
+    size_t bsize = h.rows();
+    size_t hsize = h.cols();
+    size_t xsize = x.cols();
+    const MatrixView<float> Wf(weights, 0, 0, hsize, hsize);
+    const MatrixView<float> Wi(weights, 0, hsize, hsize, hsize);
+    const MatrixView<float> Wo(weights, 0, 2*hsize, hsize, hsize);
+    const MatrixView<float> Wc(weights, 0, 3*hsize, hsize, hsize);
+    const MatrixView<float> Uf(weights, hsize, 0, xsize, hsize);
+    const MatrixView<float> Ui(weights, hsize, hsize, xsize, hsize);
+    const MatrixView<float> Uo(weights, hsize, 2*hsize, xsize, hsize);
+    const MatrixView<float> Uc(weights, hsize, 3*hsize, xsize, hsize);
+    const VectorView<float> bf(biases, 0, hsize);
+    const VectorView<float> bi(biases, hsize, hsize);
+    const VectorView<float> bo(biases, 2*hsize, hsize);
+    const VectorView<float> bc(biases, 3*hsize, hsize);
+
+    Matrix<float> fm(bsize, hsize), im(bsize, hsize), om(bsize, hsize), jm(bsize, hsize);
+    static const int block_size = 128;
+    static const int block_size_sqr = block_size * block_size;
+
+    fm = matmul(h, Wf);
+    fm = matmul_add(x, Uf, fm);
+
+    om = matmul(h, Wo);
+    om = matmul_add(x, Uo, om);
+
+    im = matmul(h, Wi);
+    im = matmul_add(x, Ui, im);
+
+    jm = matmul(h, Wc);
+    jm = matmul_add(x, Uc, jm);
+    
+    #pragma omp parallel for
+    for (size_t i = 0; i < bsize; i += block_size_sqr) {
+        for (size_t ii = i; ii < std::min(bsize, i+block_size_sqr); ii++) {
+            for (size_t j = 0; j < xsize; j += 1) {
+                fm.at(ii, j) += bf.at(j);
+                fm.at(ii, j) = sigmoid(fm.at(ii, j));
+
+                cprime.at(ii, j) = fm.at(ii, j) * c.at(ii, j);
+
+                im.at(ii, j) += bi.at(j);
+                im.at(ii, j) = sigmoid(im.at(ii, j));
+                jm.at(ii, j) += bc.at(j);
+                jm.at(ii, j) = std::tanh(jm.at(ii, j));
+
+                cprime.at(ii, j) += im.at(ii, j) * jm.at(ii, j);
+
+                om.at(ii, j) += bo.at(j);
+                om.at(ii, j) = sigmoid(om.at(ii, j));
+                hprime.at(ii, j) = om.at(ii, j) * std::tanh(cprime.at(ii, j));
+            }
+        }
+    }
 
 // END YOUR CODE HERE
 }
@@ -412,7 +586,9 @@ int main(int argc, const char** argv)
 
         Timer tm(CLOCK_MONOTONIC);
 
-        kernel_lstm(weights, biases, x, h, c, hprime, cprime);
+        // kernel_lstm(weights, biases, x, h, c, hprime, cprime);
+        // serial_lstm(weights, biases, x, h, c, hprime, cprime);
+        parallel_lstm(weights, biases, x, h, c, hprime, cprime);
 
         uint64_t time = tm.read();
         if (i < 5)
